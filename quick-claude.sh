@@ -100,6 +100,50 @@ for ((j=total-1; j>=0; j--)); do
     original_timestamps+=("${dates[$i]}")
 done
 
+# Viewport state for scrolling when list exceeds terminal height
+viewport_size=0
+viewport_start=0
+overflow=0
+displayed_rows=0
+
+# Compute viewport size from terminal height. Reserves room for the 4-line
+# header plus a couple of lines of breathing space below the menu so the
+# active selection never scrolls off-screen.
+calc_viewport() {
+    local term_rows=${LINES:-0}
+    if [[ $term_rows -le 0 ]]; then
+        term_rows=$(tput lines 2>/dev/null)
+        [[ -z $term_rows || $term_rows -le 0 ]] && term_rows=30
+    fi
+    local reserved=6
+    local avail=$((term_rows - reserved))
+    [[ $avail -lt 5 ]] && avail=5
+
+    if [[ $total -le $avail ]]; then
+        viewport_size=$total
+        overflow=0
+        displayed_rows=$total
+    else
+        viewport_size=$avail
+        overflow=1
+        # +2 for the top/bottom "N more" indicator lines
+        displayed_rows=$((avail + 2))
+    fi
+}
+
+# Slide viewport_start so `current` stays within the visible window
+ensure_visible() {
+    if [[ $current -lt $viewport_start ]]; then
+        viewport_start=$current
+    elif [[ $current -ge $((viewport_start + viewport_size)) ]]; then
+        viewport_start=$((current - viewport_size + 1))
+    fi
+    [[ $viewport_start -lt 0 ]] && viewport_start=0
+    local max_start=$((total - viewport_size))
+    [[ $max_start -lt 0 ]] && max_start=0
+    [[ $viewport_start -gt $max_start ]] && viewport_start=$max_start
+}
+
 # Function to apply current sort mode
 apply_sort() {
     if [[ $sort_mode -eq $SORT_BY_DATE ]]; then
@@ -163,8 +207,10 @@ draw_menu() {
     local start_line=$2
 
     if [[ $start_line -gt 0 ]]; then
-        printf "\033[%dA" "$total"
+        printf "\033[%dA" "$displayed_rows"
     fi
+
+    ensure_visible
 
     # Precompute match status
     local -a is_match=()
@@ -177,7 +223,31 @@ draw_menu() {
         done
     fi
 
-    for ((i=0; i<total; i++)); do
+    # Top scroll indicator
+    if [[ $overflow -eq 1 ]]; then
+        printf "\r\033[K"
+        if [[ $viewport_start -gt 0 ]]; then
+            local hidden_above=$viewport_start
+            local matches_above=0
+            if [[ -n "$search_query" ]]; then
+                for ((mi=0; mi<viewport_start; mi++)); do
+                    [[ ${is_match[$mi]} -eq 1 ]] && ((matches_above++))
+                done
+            fi
+            if [[ -n "$search_query" && $matches_above -gt 0 ]]; then
+                echo -e "  ${DIM}↑ ${hidden_above} more (${CYAN}${matches_above} match$([[ $matches_above -ne 1 ]] && echo es)${NC}${DIM})${NC}"
+            else
+                echo -e "  ${DIM}↑ ${hidden_above} more${NC}"
+            fi
+        else
+            printf "\n"
+        fi
+    fi
+
+    local view_end=$((viewport_start + viewport_size))
+    [[ $view_end -gt $total ]] && view_end=$total
+
+    for ((i=viewport_start; i<view_end; i++)); do
         local name="${sorted_repos[$i]}"
         local padded_name=$(printf "%-${max_name_len}s" "$name")
         local num=$((i+1))
@@ -218,6 +288,27 @@ draw_menu() {
             fi
         fi
     done
+
+    # Bottom scroll indicator
+    if [[ $overflow -eq 1 ]]; then
+        printf "\r\033[K"
+        local hidden_below=$((total - view_end))
+        if [[ $hidden_below -gt 0 ]]; then
+            local matches_below=0
+            if [[ -n "$search_query" ]]; then
+                for ((mi=view_end; mi<total; mi++)); do
+                    [[ ${is_match[$mi]} -eq 1 ]] && ((matches_below++))
+                done
+            fi
+            if [[ -n "$search_query" && $matches_below -gt 0 ]]; then
+                echo -e "  ${DIM}↓ ${hidden_below} more (${CYAN}${matches_below} match$([[ $matches_below -ne 1 ]] && echo es)${NC}${DIM})${NC}"
+            else
+                echo -e "  ${DIM}↓ ${hidden_below} more${NC}"
+            fi
+        else
+            printf "\n"
+        fi
+    fi
 }
 
 # Function to draw header
@@ -234,6 +325,7 @@ draw_header() {
 }
 
 update_filter
+calc_viewport
 draw_header
 
 current=0
@@ -258,7 +350,7 @@ while true; do
                 search_query=""
                 update_filter
                 current=0
-                printf "\033[%dA" "$((total + 4))"
+                printf "\033[%dA" "$((displayed_rows + 4))"
                 draw_header
                 draw_menu $current 0
             else
@@ -321,7 +413,7 @@ while true; do
         search_query=""
         update_filter
         current=0
-        printf "\033[%dA" "$((total + 4))"
+        printf "\033[%dA" "$((displayed_rows + 4))"
         draw_header
         draw_menu $current 0
     elif [[ $key == $'\177' || $key == $'\b' ]]; then
@@ -334,7 +426,7 @@ while true; do
             elif [[ -z "$search_query" ]]; then
                 current=0
             fi
-            printf "\033[%dA" "$((total + 4))"
+            printf "\033[%dA" "$((displayed_rows + 4))"
             draw_header
             draw_menu $current 0
         fi
@@ -356,7 +448,7 @@ while true; do
         elif [[ $filtered_total -gt 0 ]]; then
             current=${filtered_indices[0]}
         fi
-        printf "\033[%dA" "$((total + 4))"
+        printf "\033[%dA" "$((displayed_rows + 4))"
         draw_header
         draw_menu $current 0
     fi
@@ -373,4 +465,10 @@ echo -e "${DIM}Jumping into ${selected}...${NC}"
 echo ""
 
 cd "$target_dir" || { echo "Failed to cd"; return 1 2>/dev/null || exit 1; }
-claude
+
+if [[ -n "$QUICK_CLAUDE_ZELLIJ" ]]; then
+    unset QUICK_CLAUDE_ZELLIJ
+    zellij -s "${selected}_$(date +%Y-%m-%d_%H:%M:%S)" -n claude
+else
+    claude
+fi

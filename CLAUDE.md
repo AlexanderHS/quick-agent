@@ -22,3 +22,4 @@ quick-claude is a bash-based interactive launcher that displays a list of reposi
 - Escape clears search first, then exits on second press
 - Git repos show last commit date; non-git directories show "not git"
 - Cross-platform date handling (GNU and BSD `stat`/`date` variants)
+- **Scrolling viewport**: when the list is taller than `$LINES` minus a 6-line reservation (4-line header + breathing room), the menu shows a fixed-height window that follows the cursor. `↑ N more` / `↓ N more` indicators (with match counts during search) show what's hidden. Cursor-redraw math uses `displayed_rows` (viewport size + 2 indicator lines when overflowing) instead of `total`.
