@@ -1,6 +1,6 @@
 #!/bin/bash
-# quick-claude - Quick launcher to get coding in your repos
-# Usage: source quick-claude.sh
+# quick-agent - Pick a repo, cd into it, and launch a coding agent
+# Usage: source quick-agent.sh [agent|command...]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -9,8 +9,51 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
     source "$SCRIPT_DIR/.env"
 fi
 
-# Default repos directory
+# Default repos directory and agent
 REPOS_DIR="${REPOS_DIR:-$HOME/repos}"
+DEFAULT_AGENT="${DEFAULT_AGENT:-pi}"
+
+# Known agent commands. These intentionally default to low-friction/full-access modes.
+agent_command() {
+    case "$1" in
+        pi)
+            printf '%s\0' pi
+            ;;
+        claude)
+            printf '%s\0' claude --dangerously-skip-permissions
+            ;;
+        opencode|oc)
+            # opencode's TUI is already low-friction by default on current releases.
+            # Keep this as a named agent so aliases/config can target it consistently.
+            printf '%s\0' opencode
+            ;;
+        codex)
+            printf '%s\0' codex --dangerously-bypass-approvals-and-sandbox
+            ;;
+        gemini)
+            printf '%s\0' gemini -y
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Build launch command from args, .env LAUNCH_COMMAND, or DEFAULT_AGENT
+if [[ $# -gt 0 ]]; then
+    if agent_command "$1" >/dev/null; then
+        mapfile -d '' -t LAUNCH_COMMAND < <(agent_command "$1")
+        shift
+        LAUNCH_COMMAND+=("$@")
+    else
+        LAUNCH_COMMAND=("$@")
+    fi
+elif [[ -n "${LAUNCH_COMMAND:-}" ]]; then
+    # shellcheck disable=SC2206
+    LAUNCH_COMMAND=($LAUNCH_COMMAND)
+else
+    mapfile -d '' -t LAUNCH_COMMAND < <(agent_command "$DEFAULT_AGENT" || printf '%s\0' "$DEFAULT_AGENT")
+fi
 
 # Colors
 CYAN='\033[0;36m'
@@ -41,7 +84,6 @@ for dir in "$REPOS_DIR"/*/; do
     [[ -d "$dir" ]] || continue
     repo_name=$(basename "$dir")
 
-    # Try to get last commit date if it's a git repo
     if [[ -d "$dir/.git" ]]; then
         timestamp=$(git -C "$dir" log -1 --format=%ct 2>/dev/null)
         if [[ -n "$timestamp" ]]; then
@@ -60,22 +102,18 @@ for dir in "$REPOS_DIR"/*/; do
     display_dates+=("$display_date")
 done
 
-# Check if we found any repos
 if [[ ${#repos[@]} -eq 0 ]]; then
     echo -e "${YELLOW}No repos found in $REPOS_DIR${NC}"
     return 1 2>/dev/null || exit 1
 fi
 
-# Sort by date (oldest first, so newest appears at bottom of screen)
 indices=($(for i in "${!dates[@]}"; do echo "$i ${dates[$i]}"; done | sort -k2 -n | cut -d' ' -f1))
 
-# Find max repo name length for alignment
 max_name_len=0
 for name in "${repos[@]}"; do
     [[ ${#name} -gt $max_name_len ]] && max_name_len=${#name}
 done
 
-# Build sorted list (most recent first for display)
 total=${#indices[@]}
 declare -a sorted_repos=()
 declare -a sorted_dates=()
@@ -85,16 +123,13 @@ for ((j=total-1; j>=0; j--)); do
     sorted_dates+=("${display_dates[$i]}")
 done
 
-# Search state
 search_query=""
 declare -a filtered_indices=()
 filtered_total=0
 
-# Store original arrays for re-sorting (parallel arrays: index links them)
 declare -a original_repos=("${sorted_repos[@]}")
 declare -a original_dates=("${sorted_dates[@]}")
 declare -a original_timestamps=()
-# Build timestamps in same order as sorted_repos (most recent first)
 for ((j=total-1; j>=0; j--)); do
     i="${indices[$j]}"
     original_timestamps+=("${dates[$i]}")
@@ -147,61 +182,34 @@ ensure_visible() {
 # Function to apply current sort mode
 apply_sort() {
     if [[ $sort_mode -eq $SORT_BY_DATE ]]; then
-        # Sort by timestamp descending (most recent first)
-        local sort_indices=($(for i in "${!original_timestamps[@]}"; do
-            echo "$i ${original_timestamps[$i]}"
-        done | sort -k2 -nr | cut -d' ' -f1))
-
-        sorted_repos=()
-        sorted_dates=()
-        for i in "${sort_indices[@]}"; do
-            sorted_repos+=("${original_repos[$i]}")
-            sorted_dates+=("${original_dates[$i]}")
-        done
-    elif [[ $sort_mode -eq $SORT_BY_NAME ]]; then
-        # Sort alphabetically by name (case-insensitive)
-        local sort_indices=($(for i in "${!original_repos[@]}"; do
-            echo "$i ${original_repos[$i]}"
-        done | sort -k2 -f | cut -d' ' -f1))
-
-        sorted_repos=()
-        sorted_dates=()
-        for i in "${sort_indices[@]}"; do
-            sorted_repos+=("${original_repos[$i]}")
-            sorted_dates+=("${original_dates[$i]}")
-        done
+        local sort_indices=($(for i in "${!original_timestamps[@]}"; do echo "$i ${original_timestamps[$i]}"; done | sort -k2 -nr | cut -d' ' -f1))
+        sorted_repos=(); sorted_dates=()
+        for i in "${sort_indices[@]}"; do sorted_repos+=("${original_repos[$i]}"); sorted_dates+=("${original_dates[$i]}"); done
+    else
+        local sort_indices=($(for i in "${!original_repos[@]}"; do echo "$i ${original_repos[$i]}"; done | sort -k2 -f | cut -d' ' -f1))
+        sorted_repos=(); sorted_dates=()
+        for i in "${sort_indices[@]}"; do sorted_repos+=("${original_repos[$i]}"); sorted_dates+=("${original_dates[$i]}"); done
     fi
 }
 
-# Function to update filtered indices based on search query
 update_filter() {
     filtered_indices=()
     if [[ -z "$search_query" ]]; then
-        for ((i=0; i<total; i++)); do
-            filtered_indices+=($i)
-        done
+        for ((i=0; i<total; i++)); do filtered_indices+=($i); done
     else
         local query_lower="${search_query,,}"
         for ((i=0; i<total; i++)); do
             local name_lower="${sorted_repos[$i],,}"
-            if [[ "$name_lower" == "$query_lower"* ]]; then
-                filtered_indices+=($i)
-            fi
+            [[ "$name_lower" == "$query_lower"* ]] && filtered_indices+=($i)
         done
     fi
     filtered_total=${#filtered_indices[@]}
 }
 
-# Function to get sort mode label
-get_sort_label() {
-    if [[ $sort_mode -eq $SORT_BY_DATE ]]; then
-        echo "date"
-    else
-        echo "name"
-    fi
-}
+get_sort_label() { [[ $sort_mode -eq $SORT_BY_DATE ]] && echo "date" || echo "name"; }
 
-# Function to draw menu
+pretty_command() { printf '%q ' "${LAUNCH_COMMAND[@]}"; }
+
 draw_menu() {
     local selected=$1
     local start_line=$2
@@ -214,14 +222,8 @@ draw_menu() {
 
     # Precompute match status
     local -a is_match=()
-    for ((i=0; i<total; i++)); do
-        is_match[$i]=0
-    done
-    if [[ -n "$search_query" ]]; then
-        for fi_idx in "${filtered_indices[@]}"; do
-            is_match[$fi_idx]=1
-        done
-    fi
+    for ((i=0; i<total; i++)); do is_match[$i]=0; done
+    if [[ -n "$search_query" ]]; then for fi_idx in "${filtered_indices[@]}"; do is_match[$fi_idx]=1; done; fi
 
     # Top scroll indicator
     if [[ $overflow -eq 1 ]]; then
@@ -252,15 +254,9 @@ draw_menu() {
         local padded_name=$(printf "%-${max_name_len}s" "$name")
         local num=$((i+1))
         local num_label
-
-        if [[ $num -le 9 ]]; then
-            num_label="${DIM}${num}${NC} "
-        else
-            num_label="  "
-        fi
+        [[ $num -le 9 ]] && num_label="${DIM}${num}${NC} " || num_label="  "
 
         printf "\r\033[K"
-
         if [[ -n "$search_query" ]]; then
             local qlen=${#search_query}
             if [[ ${is_match[$i]} -eq 1 ]]; then
@@ -270,14 +266,11 @@ draw_menu() {
                 local pad_str=""
                 [[ $padding -gt 0 ]] && pad_str=$(printf "%${padding}s" "")
                 if [[ $i -eq $selected ]]; then
-                    # Selected match: green arrow, cyan prefix, bold rest
                     echo -e "${num_label}${GREEN}${BOLD}>${NC} ${CYAN}${BOLD}${match_part}${NC}${BOLD}${rest_name}${NC}${pad_str}  ${DIM}(${sorted_dates[$i]})${NC}"
                 else
-                    # Non-selected match: cyan prefix
                     echo -e "${num_label}  ${CYAN}${match_part}${NC}${rest_name}${pad_str}  ${DIM}(${sorted_dates[$i]})${NC}"
                 fi
             else
-                # Non-matching: dim everything
                 echo -e "${num_label}  ${DIM}${padded_name}  (${sorted_dates[$i]})${NC}"
             fi
         else
@@ -311,11 +304,10 @@ draw_menu() {
     fi
 }
 
-# Function to draw header
 draw_header() {
     local sort_label=$(get_sort_label)
     echo ""
-    echo -e "${CYAN}${BOLD}Ready to code?${NC}"
+    echo -e "${CYAN}${BOLD}Ready to code?${NC} ${DIM}($(pretty_command))${NC}"
     if [[ -n "$search_query" ]]; then
         echo -e "${DIM}Search:${NC} ${BOLD}${search_query}${NC}${DIM}▌${NC}"
     else
@@ -332,10 +324,7 @@ current=0
 draw_menu $current 0
 
 printf "\033[?25l"
-
-cleanup() {
-    printf "\033[?25h"
-}
+cleanup() { printf "\033[?25h"; }
 trap cleanup EXIT
 
 while true; do
@@ -344,7 +333,6 @@ while true; do
     if [[ $key == $'\033' ]]; then
         read -rsn2 -t 0.1 key
         if [[ -z $key ]]; then
-            # Bare escape
             if [[ -n "$search_query" ]]; then
                 # Clear search
                 search_query=""
@@ -354,41 +342,24 @@ while true; do
                 draw_header
                 draw_menu $current 0
             else
-                # Exit
-                printf "\033[?25h"
-                trap - EXIT
-                echo ""
+                printf "\033[?25h"; trap - EXIT; echo ""
                 return 0 2>/dev/null || exit 0
             fi
         else
             case "$key" in
                 '[A')
-                    # Up arrow
                     if [[ -n "$search_query" && $filtered_total -gt 0 ]]; then
-                        # Navigate to previous match
                         prev=-1
-                        for ((fi=filtered_total-1; fi>=0; fi--)); do
-                            if [[ ${filtered_indices[$fi]} -lt $current ]]; then
-                                prev=${filtered_indices[$fi]}
-                                break
-                            fi
-                        done
+                        for ((fi=filtered_total-1; fi>=0; fi--)); do [[ ${filtered_indices[$fi]} -lt $current ]] && { prev=${filtered_indices[$fi]}; break; }; done
                         [[ $prev -ge 0 ]] && current=$prev
                     else
                         ((current > 0)) && ((current--))
                     fi
                     ;;
                 '[B')
-                    # Down arrow
                     if [[ -n "$search_query" && $filtered_total -gt 0 ]]; then
-                        # Navigate to next match
                         next=-1
-                        for ((fi=0; fi<filtered_total; fi++)); do
-                            if [[ ${filtered_indices[$fi]} -gt $current ]]; then
-                                next=${filtered_indices[$fi]}
-                                break
-                            fi
-                        done
+                        for ((fi=0; fi<filtered_total; fi++)); do [[ ${filtered_indices[$fi]} -gt $current ]] && { next=${filtered_indices[$fi]}; break; }; done
                         [[ $next -ge 0 ]] && current=$next
                     else
                         ((current < total - 1)) && ((current++))
@@ -398,10 +369,7 @@ while true; do
             draw_menu $current 1
         fi
     elif [[ $key == '' ]]; then
-        # Enter - select current (only if valid)
-        if [[ -z "$search_query" || $filtered_total -gt 0 ]]; then
-            break
-        fi
+        [[ -z "$search_query" || $filtered_total -gt 0 ]] && break
     elif [[ $key == '/' ]]; then
         # Toggle sort mode
         if [[ $sort_mode -eq $SORT_BY_DATE ]]; then
@@ -417,7 +385,6 @@ while true; do
         draw_header
         draw_menu $current 0
     elif [[ $key == $'\177' || $key == $'\b' ]]; then
-        # Backspace - remove last search character
         if [[ -n "$search_query" ]]; then
             search_query="${search_query%?}"
             update_filter
@@ -431,12 +398,7 @@ while true; do
             draw_menu $current 0
         fi
     elif [[ -z "$search_query" && $key =~ ^[1-9]$ ]]; then
-        # Number shortcut (only when not searching)
-        target=$((key - 1))
-        if [[ $target -lt $total ]]; then
-            current=$target
-            break
-        fi
+        target=$((key - 1)); [[ $target -lt $total ]] && { current=$target; break; }
     elif [[ $key =~ ^[a-zA-Z0-9._-]$ ]]; then
         # Type-to-search: append character to search query
         search_query+="$key"
