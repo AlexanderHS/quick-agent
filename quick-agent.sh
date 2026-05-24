@@ -306,14 +306,14 @@ draw_menu() {
 
 draw_header() {
     local sort_label=$(get_sort_label)
-    echo ""
-    echo -e "${CYAN}${BOLD}Ready to code?${NC} ${DIM}($(pretty_command))${NC}"
+    printf "\r\033[K\n"
+    printf "\r\033[K%b\n" "${CYAN}${BOLD}Ready to code?${NC} ${DIM}($(pretty_command))${NC}"
     if [[ -n "$search_query" ]]; then
-        echo -e "${DIM}Search:${NC} ${BOLD}${search_query}${NC}${DIM}▌${NC}"
+        printf "\r\033[K%b\n" "${DIM}Search:${NC} ${BOLD}${search_query}${NC}${DIM}▌${NC}"
     else
-        echo -e "${DIM}Type to search, ↑/↓ 1-9 to select, / to sort [${sort_label}]:${NC}"
+        printf "\r\033[K%b\n" "${DIM}Type to search, ↑/↓ 1-9 to select, / to sort [${sort_label}]:${NC}"
     fi
-    echo ""
+    printf "\r\033[K\n"
 }
 
 update_filter
@@ -427,10 +427,4 @@ echo -e "${DIM}Jumping into ${selected}...${NC}"
 echo ""
 
 cd "$target_dir" || { echo "Failed to cd"; return 1 2>/dev/null || exit 1; }
-
-if [[ -n "$QUICK_CLAUDE_ZELLIJ" ]]; then
-    unset QUICK_CLAUDE_ZELLIJ
-    zellij -s "${selected}_$(date +%Y-%m-%d_%H:%M:%S)" -n claude
-else
-    claude
-fi
+"${LAUNCH_COMMAND[@]}"
