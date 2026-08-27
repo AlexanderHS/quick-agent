@@ -23,8 +23,8 @@ agent_command() {
             printf '%s\0' claude --dangerously-skip-permissions
             ;;
         opencode|oc)
-            # opencode's TUI is already low-friction by default on current releases.
-            # Keep this as a named agent so aliases/config can target it consistently.
+            # opencode has no bypass CLI flag; full-access mode comes from
+            # "permission": "allow" in ~/.config/opencode/opencode.json.
             printf '%s\0' opencode
             ;;
         codex)
