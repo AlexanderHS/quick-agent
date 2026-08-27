@@ -58,10 +58,11 @@ source quick-agent.sh bash
 Known agent shortcuts expand to their preferred low-friction command:
 
 ```bash
-claude -> claude --dangerously-skip-permissions
-codex  -> codex --dangerously-bypass-approvals-and-sandbox
-gemini -> gemini -y
-pi     -> pi
+claude   -> claude --dangerously-skip-permissions
+codex    -> codex --dangerously-bypass-approvals-and-sandbox
+gemini   -> gemini -y
+opencode -> opencode   # full access via "permission": "allow" in ~/.config/opencode/opencode.json
+pi       -> pi
 ```
 
 ## Menu keys

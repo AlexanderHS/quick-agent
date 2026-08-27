@@ -21,7 +21,7 @@ Known agent shortcuts intentionally choose low-friction/full-access modes where 
 
 - `pi` → `pi`
 - `claude` → `claude --dangerously-skip-permissions`
-- `opencode` / `oc` → `opencode`
+- `opencode` / `oc` → `opencode` (no bypass flag exists; full access set by `"permission": "allow"` in `~/.config/opencode/opencode.json`)
 - `codex` → `codex --dangerously-bypass-approvals-and-sandbox`
 - `gemini` → `gemini -y`
 
