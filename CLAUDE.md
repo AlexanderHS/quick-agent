@@ -20,7 +20,7 @@ It generalizes the original quick-claude tool. The core abstraction is: pick rep
 Known agent shortcuts intentionally choose low-friction/full-access modes where the CLI supports them:
 
 - `pi` → `pi`
-- `claude` → `claude --dangerously-skip-permissions`
+- `claude` → `claude --dangerously-skip-permissions`, plus a trailing `/helm` on a bare launch when the helm skill is installed (`QUICK_AGENT_HELM=0` disables). Machine launchers (helm-spawn, conn, commodore) never go through this picker, which is why the default lives here and not in a `claude` shell wrapper.
 - `opencode` / `oc` → `opencode` (no bypass flag exists; full access set by `"permission": "allow"` in `~/.config/opencode/opencode.json`)
 - `codex` → `codex --dangerously-bypass-approvals-and-sandbox`
 - `gemini` → `gemini -y`

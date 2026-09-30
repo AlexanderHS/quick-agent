@@ -39,20 +39,40 @@ agent_command() {
     esac
 }
 
+# A bare Claude launch opens on /helm when the helm skill is installed, so the
+# session starts as a manager. Only a bare launch: extra arguments (a prompt,
+# --resume, -p) are the user's and go through untouched. QUICK_AGENT_HELM=0
+# turns it off. Machine launchers (helm-spawn, conn, commodore) start claude
+# directly, never through this picker, so they are unaffected.
+#
+# The argv lives in QA_ARGV, never LAUNCH_COMMAND: this file is sourced, so an
+# array left in LAUNCH_COMMAND would be read back as the user's configured
+# command on the next launch in the same shell.
+qa_helm_skill_installed() {
+    [[ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/helm/SKILL.md" ]]
+}
+
 # Build launch command from args, .env LAUNCH_COMMAND, or DEFAULT_AGENT
+QA_AGENT=""
 if [[ $# -gt 0 ]]; then
     if agent_command "$1" >/dev/null; then
-        mapfile -d '' -t LAUNCH_COMMAND < <(agent_command "$1")
+        QA_AGENT="$1"
+        mapfile -d '' -t QA_ARGV < <(agent_command "$1")
         shift
-        LAUNCH_COMMAND+=("$@")
+        [[ $# -gt 0 ]] && QA_AGENT=""
+        QA_ARGV+=("$@")
     else
-        LAUNCH_COMMAND=("$@")
+        QA_ARGV=("$@")
     fi
 elif [[ -n "${LAUNCH_COMMAND:-}" ]]; then
     # shellcheck disable=SC2206
-    LAUNCH_COMMAND=($LAUNCH_COMMAND)
+    QA_ARGV=($LAUNCH_COMMAND)
 else
-    mapfile -d '' -t LAUNCH_COMMAND < <(agent_command "$DEFAULT_AGENT" || printf '%s\0' "$DEFAULT_AGENT")
+    agent_command "$DEFAULT_AGENT" >/dev/null && QA_AGENT="$DEFAULT_AGENT"
+    mapfile -d '' -t QA_ARGV < <(agent_command "$DEFAULT_AGENT" || printf '%s\0' "$DEFAULT_AGENT")
+fi
+if [[ "$QA_AGENT" == claude && "${QUICK_AGENT_HELM:-1}" != 0 ]] && qa_helm_skill_installed; then
+    QA_ARGV+=("/helm")
 fi
 
 # Colors
@@ -208,7 +228,7 @@ update_filter() {
 
 get_sort_label() { [[ $sort_mode -eq $SORT_BY_DATE ]] && echo "date" || echo "name"; }
 
-pretty_command() { printf '%q ' "${LAUNCH_COMMAND[@]}"; }
+pretty_command() { printf '%q ' "${QA_ARGV[@]}"; }
 
 draw_menu() {
     local selected=$1
@@ -427,4 +447,4 @@ echo -e "${DIM}Jumping into ${selected}...${NC}"
 echo ""
 
 cd "$target_dir" || { echo "Failed to cd"; return 1 2>/dev/null || exit 1; }
-"${LAUNCH_COMMAND[@]}"
+"${QA_ARGV[@]}"
