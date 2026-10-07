@@ -39,8 +39,9 @@ agent_command() {
     esac
 }
 
-# A bare Claude launch opens on /helm when the helm skill is installed, so the
-# session starts as a manager. Only a bare launch: extra arguments (a prompt,
+# A bare Claude launch inside a Herdr session (HERDR_ENV=1) opens on /helm when
+# the helm skill is installed, so the session starts as a manager. Outside
+# Herdr a manager has no tabs to open, so claude starts plain. Only a bare launch: extra arguments (a prompt,
 # --resume, -p) are the user's and go through untouched. QUICK_AGENT_HELM=0
 # turns it off. Machine launchers (helm-spawn, conn, commodore) start claude
 # directly, never through this picker, so they are unaffected.
@@ -71,7 +72,7 @@ else
     agent_command "$DEFAULT_AGENT" >/dev/null && QA_AGENT="$DEFAULT_AGENT"
     mapfile -d '' -t QA_ARGV < <(agent_command "$DEFAULT_AGENT" || printf '%s\0' "$DEFAULT_AGENT")
 fi
-if [[ "$QA_AGENT" == claude && "${QUICK_AGENT_HELM:-1}" != 0 ]] && qa_helm_skill_installed; then
+if [[ "$QA_AGENT" == claude && "${HERDR_ENV:-}" == 1 && "${QUICK_AGENT_HELM:-1}" != 0 ]] && qa_helm_skill_installed; then
     QA_ARGV+=("/helm")
 fi
 
