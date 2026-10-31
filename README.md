@@ -65,13 +65,6 @@ opencode -> opencode   # full access via "permission": "allow" in ~/.config/open
 pi       -> pi
 ```
 
-A bare Claude launch (`c`, or `source quick-agent.sh claude` with nothing after
-it) inside a Herdr session also passes `/helm`, so the session opens as a helm
-manager, when `~/.claude/skills/helm/SKILL.md` exists. Outside Herdr (plain SSH,
-a bare terminal) claude starts plain, because a manager there has no tabs. Extra arguments turn this off for that
-launch (`c --resume` resumes as normal); `QUICK_AGENT_HELM=0` turns it off
-entirely.
-
 ## Menu keys
 
 | Key | Action |

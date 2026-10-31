@@ -39,28 +39,15 @@ agent_command() {
     esac
 }
 
-# A bare Claude launch inside a Herdr session (HERDR_ENV=1) opens on /helm when
-# the helm skill is installed, so the session starts as a manager. Outside
-# Herdr a manager has no tabs to open, so claude starts plain. Only a bare launch: extra arguments (a prompt,
-# --resume, -p) are the user's and go through untouched. QUICK_AGENT_HELM=0
-# turns it off. Machine launchers (helm-spawn, conn, commodore) start claude
-# directly, never through this picker, so they are unaffected.
-#
 # The argv lives in QA_ARGV, never LAUNCH_COMMAND: this file is sourced, so an
 # array left in LAUNCH_COMMAND would be read back as the user's configured
 # command on the next launch in the same shell.
-qa_helm_skill_installed() {
-    [[ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/helm/SKILL.md" ]]
-}
 
 # Build launch command from args, .env LAUNCH_COMMAND, or DEFAULT_AGENT
-QA_AGENT=""
 if [[ $# -gt 0 ]]; then
     if agent_command "$1" >/dev/null; then
-        QA_AGENT="$1"
         mapfile -d '' -t QA_ARGV < <(agent_command "$1")
         shift
-        [[ $# -gt 0 ]] && QA_AGENT=""
         QA_ARGV+=("$@")
     else
         QA_ARGV=("$@")
@@ -69,11 +56,7 @@ elif [[ -n "${LAUNCH_COMMAND:-}" ]]; then
     # shellcheck disable=SC2206
     QA_ARGV=($LAUNCH_COMMAND)
 else
-    agent_command "$DEFAULT_AGENT" >/dev/null && QA_AGENT="$DEFAULT_AGENT"
     mapfile -d '' -t QA_ARGV < <(agent_command "$DEFAULT_AGENT" || printf '%s\0' "$DEFAULT_AGENT")
-fi
-if [[ "$QA_AGENT" == claude && "${HERDR_ENV:-}" == 1 && "${QUICK_AGENT_HELM:-1}" != 0 ]] && qa_helm_skill_installed; then
-    QA_ARGV+=("/helm")
 fi
 
 # Colors
