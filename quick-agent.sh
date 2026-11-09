@@ -86,6 +86,7 @@ declare -a display_dates=()
 
 for dir in "$REPOS_DIR"/*/; do
     [[ -d "$dir" ]] || continue
+    [[ -L "${dir%/}" ]] && continue  # a compatibility alias (system-tasks -> keel) would list the repo twice
     repo_name=$(basename "$dir")
 
     if [[ -d "$dir/.git" ]]; then
